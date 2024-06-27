@@ -6,6 +6,7 @@ from taming.modules.losses.lpips import LPIPS
 from taming.modules.discriminator.model import NLayerDiscriminator, weights_init
 
 
+
 class DummyLoss(nn.Module):
     def __init__(self):
         super().__init__()
@@ -60,13 +61,48 @@ class VQLPIPSWithDiscriminator(nn.Module):
         self.discriminator_weight = disc_weight
         self.disc_conditional = disc_conditional
 
-    def calculate_adaptive_weight(self, nll_loss, g_loss, last_layer=None):
+    """def calculate_adaptive_weight(self, nll_loss, g_loss, last_layer=None):
         if last_layer is not None:
             nll_grads = torch.autograd.grad(nll_loss, last_layer, retain_graph=True)[0]
             g_grads = torch.autograd.grad(g_loss, last_layer, retain_graph=True)[0]
         else:
             nll_grads = torch.autograd.grad(nll_loss, self.last_layer[0], retain_graph=True)[0]
             g_grads = torch.autograd.grad(g_loss, self.last_layer[0], retain_graph=True)[0]
+
+        d_weight = torch.norm(nll_grads) / (torch.norm(g_grads) + 1e-4)
+        d_weight = torch.clamp(d_weight, 0.0, 1e4).detach()
+        d_weight = d_weight * self.discriminator_weight
+        return d_weight"""
+    
+
+    def calculate_adaptive_weight(self, nll_loss, g_loss, last_layer=None):
+        if last_layer is not None:
+            trainable_params = [p for p in last_layer if p.requires_grad]
+            if not trainable_params:
+                return torch.tensor(0.0, device=nll_loss.device)
+            
+            nll_grads = torch.autograd.grad(nll_loss, trainable_params, retain_graph=True, allow_unused=True)
+            g_grads = torch.autograd.grad(g_loss, trainable_params, retain_graph=True, allow_unused=True)
+            
+            # Filter out None gradients
+            nll_grads = [grad for grad in nll_grads if grad is not None]
+            g_grads = [grad for grad in g_grads if grad is not None]
+            
+            if not nll_grads or not g_grads:
+                return torch.tensor(0.0, device=nll_loss.device)
+            
+            nll_grads = torch.cat([grad.view(-1) for grad in nll_grads])
+            g_grads = torch.cat([grad.view(-1) for grad in g_grads])
+        else:
+            trainable_params = [p for p in self.last_layer[0] if p.requires_grad]
+            if not trainable_params:
+                return torch.tensor(0.0, device=nll_loss.device)
+            
+            nll_grads = torch.autograd.grad(nll_loss, trainable_params, retain_graph=True, allow_unused=True)[0]
+            g_grads = torch.autograd.grad(g_loss, trainable_params, retain_graph=True, allow_unused=True)[0]
+            
+            if nll_grads is None or g_grads is None:
+                return torch.tensor(0.0, device=nll_loss.device)
 
         d_weight = torch.norm(nll_grads) / (torch.norm(g_grads) + 1e-4)
         d_weight = torch.clamp(d_weight, 0.0, 1e4).detach()

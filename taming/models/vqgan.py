@@ -80,7 +80,7 @@ class VQModel(pl.LightningModule):
         x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
         return x.float()
 
-    def training_step(self, batch, batch_idx, optimizer_idx):
+    """def training_step(self, batch, batch_idx, optimizer_idx):
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
 
@@ -99,7 +99,29 @@ class VQModel(pl.LightningModule):
                                             last_layer=self.get_last_layer(), split="train")
             self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
             self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
-            return discloss
+            return discloss"""
+    
+    def training_step(self, batch, batch_idx, optimizer_idx=0):
+        x = self.get_input(batch, self.image_key)
+        xrec, qloss = self(x)
+
+        if optimizer_idx == 0:
+            # autoencode
+            aeloss, log_dict_ae = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
+                                            last_layer=self.get_last_layer(), split="train")
+
+            self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+            self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+            return aeloss
+
+        """if optimizer_idx == 1:
+            # discriminator
+            discloss, log_dict_disc = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
+                                            last_layer=self.get_last_layer(), split="train")
+            self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+            self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+            return discloss"""
+            
 
     def validation_step(self, batch, batch_idx):
         x = self.get_input(batch, self.image_key)
@@ -118,7 +140,7 @@ class VQModel(pl.LightningModule):
         self.log_dict(log_dict_disc)
         return self.log_dict
 
-    def configure_optimizers(self):
+    """def configure_optimizers(self):
         lr = self.learning_rate
         opt_ae = torch.optim.Adam(list(self.encoder.parameters())+
                                   list(self.decoder.parameters())+
@@ -126,9 +148,38 @@ class VQModel(pl.LightningModule):
                                   list(self.quant_conv.parameters())+
                                   list(self.post_quant_conv.parameters()),
                                   lr=lr, betas=(0.5, 0.9))
+
         opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
                                     lr=lr, betas=(0.5, 0.9))
-        return [opt_ae, opt_disc], []
+        return [opt_ae, opt_disc], []"""
+
+
+
+    def configure_optimizers(self):
+        lr = self.learning_rate
+
+        # Freeze the decoder, quantize (codebook), and other components
+        for param in self.decoder.parameters():
+            param.requires_grad = False
+        for param in self.quantize.parameters():
+            param.requires_grad = False
+        for param in self.quant_conv.parameters():
+            param.requires_grad = False
+        for param in self.post_quant_conv.parameters():
+            param.requires_grad = False
+
+        # Only optimize the encoder parameters
+        opt_ae = torch.optim.Adam(self.encoder.parameters(), lr=lr, betas=(0.5, 0.9))
+
+        # Since we're not training the discriminator, we can remove it from the optimizer
+        # If you still want to keep the discriminator (but frozen), uncomment the next line
+        #opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(), lr=lr, betas=(0.5, 0.9))
+
+        # Return only the encoder optimizer
+        return opt_ae
+        #return [opt_ae, opt_disc], []
+    
+    
 
     def get_last_layer(self):
         return self.decoder.conv_out.weight

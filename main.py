@@ -103,6 +103,13 @@ def get_parser(**parser_kwargs):
         help="post-postfix for default name",
     )
 
+    parser.add_argument(
+        "--init_from",
+        type=str,
+        default=None,
+        help="Initialize model from this checkpoint before training",
+    )
+
     return parser
 
 
@@ -120,7 +127,7 @@ def instantiate_from_config(config):
 
 
 class WrappedDataset(Dataset):
-    """Wraps an arbitrary object with __len__ and __getitem__ into a pytorch dataset"""
+    #Wraps an arbitrary object with __len__ and __getitem__ into a pytorch dataset
     def __init__(self, dataset):
         self.data = dataset
 
@@ -180,7 +187,7 @@ class SetupCallback(Callback):
         super().__init__()
         self.resume = resume
         self.now = now
-        self.logdir = logdir
+        self.logdir = '/ssd_scratch/cvit/sayandebroy/taming/logdir'
         self.ckptdir = ckptdir
         self.cfgdir = cfgdir
         self.config = config
@@ -435,6 +442,19 @@ if __name__ == "__main__":
         # model
         model = instantiate_from_config(config.model)
 
+        #**
+        if opt.init_from:
+            print(f"Initializing model from {opt.init_from}")
+            ckpt = torch.load(opt.init_from, map_location="cpu")
+            model.load_state_dict(ckpt["state_dict"], strict=False)
+
+        model.freeze()
+
+        # Unfreeze only the encoder parameters
+        for param in model.encoder.parameters():
+            param.requires_grad = True
+        #**
+
         # trainer and callbacks
         trainer_kwargs = dict()
 
@@ -583,3 +603,4 @@ if __name__ == "__main__":
             dst = os.path.join(dst, "debug_runs", name)
             os.makedirs(os.path.split(dst)[0], exist_ok=True)
             os.rename(logdir, dst)
+

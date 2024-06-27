@@ -1,4 +1,4 @@
-import os
+"""import os
 import numpy as np
 import albumentations
 from torch.utils.data import Dataset
@@ -51,7 +51,8 @@ class CelebAHQValidation(FacesBase):
 class FFHQTrain(FacesBase):
     def __init__(self, size, keys=None):
         super().__init__()
-        root = "data/ffhq"
+        #root = "data/ffhq"
+        root = "/ssd_scratch/cvit/sayandebroy/datasets/ffhq/thumbnails128x128"
         with open("data/ffhqtrain.txt", "r") as f:
             relpaths = f.read().splitlines()
         paths = [os.path.join(root, relpath) for relpath in relpaths]
@@ -62,7 +63,8 @@ class FFHQTrain(FacesBase):
 class FFHQValidation(FacesBase):
     def __init__(self, size, keys=None):
         super().__init__()
-        root = "data/ffhq"
+        #root = "data/ffhq"
+        root = "/ssd_scratch/cvit/sayandebroy/datasets/ffhq/thumbnails128x128"
         with open("data/ffhqvalidation.txt", "r") as f:
             relpaths = f.read().splitlines()
         paths = [os.path.join(root, relpath) for relpath in relpaths]
@@ -131,4 +133,113 @@ class FacesHQValidation(Dataset):
                 ex["image"] = out["image"]
                 ex["coord"] = out["coord"]
         ex["class"] = y
+        return ex
+"""
+
+
+import os
+import numpy as np
+import albumentations
+from torch.utils.data import Dataset
+
+from taming.data.base import ImagePaths, NumpyPaths, ConcatDatasetWithIndex
+
+
+class FacesBase(Dataset):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.data = None
+        self.keys = None
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, i):
+        example = self.data[i]
+        ex = {}
+        if self.keys is not None:
+            for k in self.keys:
+                ex[k] = example[k]
+        else:
+            ex = example
+        return ex
+
+
+class FFHQTrain(FacesBase):
+    def __init__(self, size, keys=None):
+        super().__init__()
+        #root = "/ssd_scratch/cvit/sayandebroy/datasets/ffhq/thumbnails128x128"
+        root = "/ssd_scratch/cvit/sayandebroy/output_noisy"
+        with open("data/ffhqtrain.txt", "r") as f:
+            relpaths = f.read().splitlines()
+        paths = [os.path.join(root, relpath) for relpath in relpaths]
+        self.data = ImagePaths(paths=paths, size=size, random_crop=False)
+        self.keys = keys
+
+
+class FFHQValidation(FacesBase):
+    def __init__(self, size, keys=None):
+        super().__init__()
+        #root = "/ssd_scratch/cvit/sayandebroy/datasets/ffhq/thumbnails128x128"
+        root = "/ssd_scratch/cvit/sayandebroy/output_noisy"
+        with open("data/ffhqvalidation.txt", "r") as f:
+            relpaths = f.read().splitlines()
+        paths = [os.path.join(root, relpath) for relpath in relpaths]
+        self.data = ImagePaths(paths=paths, size=size, random_crop=False)
+        self.keys = keys
+
+
+class FacesHQTrain(Dataset):
+    def __init__(self, size, keys=None, crop_size=None, coord=False):
+        self.data = FFHQTrain(size=size, keys=keys)
+        self.coord = coord
+        if crop_size is not None:
+            self.cropper = albumentations.RandomCrop(height=crop_size, width=crop_size)
+            if self.coord:
+                self.cropper = albumentations.Compose([self.cropper], additional_targets={"coord": "image"})
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, i):
+        ex = self.data[i]
+        if hasattr(self, "cropper"):
+            if not self.coord:
+                out = self.cropper(image=ex["image"])
+                ex["image"] = out["image"]
+            else:
+                h, w, _ = ex["image"].shape
+                coord = np.arange(h * w).reshape(h, w, 1) / (h * w)
+                out = self.cropper(image=ex["image"], coord=coord)
+                ex["image"] = out["image"]
+                ex["coord"] = out["coord"]
+        ex["class"] = 1  # Label for FFHQ
+        return ex
+
+
+class FacesHQValidation(Dataset):
+    def __init__(self, size, keys=None, crop_size=None, coord=False):
+        self.data = FFHQValidation(size=size, keys=keys)
+        self.coord = coord
+        if crop_size is not None:
+            self.cropper = albumentations.CenterCrop(height=crop_size, width=crop_size)
+            if self.coord:
+                self.cropper = albumentations.Compose([self.cropper], additional_targets={"coord": "image"})
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, i):
+        ex = self.data[i]
+        if hasattr(self, "cropper"):
+            if not self.coord:
+                out = self.cropper(image=ex["image"])
+                ex["image"] = out["image"]
+            else:
+                h, w, _ = ex["image"].shape
+                coord = np.arange(h * w).reshape(h, w, 1) / (h * w)
+                out = self.cropper(image=ex["image"], coord=coord)
+                ex["image"] = out["image"]
+                ex["coord"] = out["coord"]
+        ex["class"] = 1  # Label for FFHQ
         return ex

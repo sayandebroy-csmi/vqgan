@@ -180,8 +180,12 @@ def get_parser():
     return parser
 
 
-def load_model_from_config(config, sd, gpu=True, eval_mode=True):
+def load_model_from_config(config, sd, gpu=True, eval_mode=True, be_unconditional=False):
+    transformer_config = config.get("transformer", None)  # Retrieve transformer config if it exists
     model = instantiate_from_config(config)
+    model.be_unconditional = be_unconditional  # Set the attribute based on the parameter
+    if transformer_config:
+        model.transformer = instantiate_from_config(transformer_config)
     if sd is not None:
         model.load_state_dict(sd)
     if gpu:
@@ -190,8 +194,7 @@ def load_model_from_config(config, sd, gpu=True, eval_mode=True):
         model.eval()
     return {"model": model}
 
-
-def load_model(config, ckpt, gpu, eval_mode):
+def load_model(config, ckpt, gpu, eval_mode, be_unconditional=False):
     # load the specified checkpoint
     if ckpt:
         pl_sd = torch.load(ckpt, map_location="cpu")
@@ -200,9 +203,8 @@ def load_model(config, ckpt, gpu, eval_mode):
     else:
         pl_sd = {"state_dict": None}
         global_step = None
-    model = load_model_from_config(config.model, pl_sd["state_dict"], gpu=gpu, eval_mode=eval_mode)["model"]
+    model = load_model_from_config(config.model, pl_sd["state_dict"], gpu=gpu, eval_mode=eval_mode, be_unconditional=be_unconditional)["model"]
     return model, global_step
-
 
 if __name__ == "__main__":
     sys.path.append(os.getcwd())
@@ -235,7 +237,10 @@ if __name__ == "__main__":
     cli = OmegaConf.from_dotlist(unknown)
     config = OmegaConf.merge(*configs, cli)
 
-    model, global_step = load_model(config, ckpt, gpu=True, eval_mode=True)
+    # Determine if the model should be unconditional
+    be_unconditional = 'unconditional' in config.model.keys() and config.model.unconditional
+
+    model, global_step = load_model(config, ckpt, gpu=True, eval_mode=True, be_unconditional=be_unconditional)
 
     if opt.outdir:
         print(f"Switching logdir from '{logdir}' to '{opt.outdir}'")
@@ -254,7 +259,7 @@ if __name__ == "__main__":
     print(f"Logging to {logdir}")
     os.makedirs(logdir, exist_ok=True)
 
-    run(logdir, model, opt.batch_size, opt.temperature, opt.top_k, unconditional=model.be_unconditional,
+    run(logdir, model, opt.batch_size, opt.temperature, opt.top_k, unconditional=be_unconditional,
         given_classes=given_classes, num_samples=opt.num_samples, top_p=opt.top_p)
 
     print("done.")
